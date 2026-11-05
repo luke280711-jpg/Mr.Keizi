@@ -1,9 +1,21 @@
+import os
+import subprocess
+import sys
+
+try:
+    from playwright.async_api import async_playwright
+except ImportError:
+    subprocess.run([sys.executable, "-m", "pip", "install", "playwright"])
+    subprocess.run(["playwright", "install", "chromium"])
+    subprocess.run(["playwright", "install-deps"])
+
 import asyncio
 import streamlit as st
 from playwright.async_api import async_playwright
 
 st.set_page_config(page_title="Microsoft Forms 自動送信ツール", layout="centered")
 st.title("⚡ Microsoft Forms 自動送信ツール")
+
 
 # --- 画面からの入力設定 ---
 url = st.text_input(
