@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 
-# Streamlit Cloud環境でPlaywrightパッケージとChromiumをインストール
+# Streamlit Cloud環境でPlaywrightパッケージとChromiumをセットアップ
 try:
     from playwright.async_api import async_playwright
 except ImportError:
@@ -45,7 +45,6 @@ async def worker(
         log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
 
         try:
-            # クラウドLinuxに最適化した安定起動オプション
             browser = await p.chromium.launch(
                 headless=True,
                 args=[
@@ -62,9 +61,9 @@ async def worker(
         context = await browser.new_context()
         page = await context.new_page()
 
-        # 画像やCSSなどを遮断して高速化
+        # 画像とフォントのみ遮断（CSSやJSは通してFormsのレンダリングを安定化）
         await page.route(
-            "**/*.{png,jpg,jpeg,gif,svg,webp,css,font,woff,woff2}",
+            "**/*.{png,jpg,jpeg,gif,svg,webp,woff,woff2}",
             lambda route: route.abort(),
         )
 
@@ -73,25 +72,27 @@ async def worker(
                 log_area.info(
                     f"🔄 [ワーカー {worker_id}] ページ読込中 ({i+1}/{assigned_count})"
                 )
-                await page.goto(target_url, wait_until="domcontentloaded")
+                await page.goto(target_url, wait_until="networkidle")
 
-                # 1. 選択肢をクリック
-                choice_locator = page.locator(
-                    f"xpath=//span[contains(text(), '{target_text}')] | //div[contains(text(), '{target_text}')]"
-                )
+                # 1. 選択肢をクリック（テキストを含む要素を探す）
+                choice_locator = page.locator(f"text={target_text}").first
+                await choice_locator.wait_for(state="visible", timeout=10000)
                 await choice_locator.click()
 
-                # 2. 送信ボタンをクリック
-                submit_locator = page.locator(
-                    "xpath=//button[.//span[contains(text(), '送信')] or contains(text(), '送信')]"
-                )
-                await submit_locator.click()
+                # 2. 送信ボタンをクリック（複数の要素指定方法で柔軟に対応）
+                submit_button = page.locator(
+                    "button:has-text('送信'), [data-automation-id='submitButton']"
+                ).first
+                await submit_button.click()
 
-                # 3. 「別の回答を送信」をクリック
-                another_locator = page.locator(
-                    "xpath=//a[contains(text(), '別の回答を送信')] | //div[contains(text(), '別の回答を送信')] | //span[contains(text(), '別の回答を送信')]"
-                )
-                await another_locator.click(timeout=5000)
+                # 3. 「別の回答を送信」をクリック（次のループ用）
+                another_link = page.locator(
+                    "text=別の回答を送信, a:has-text('別の回答')"
+                ).first
+                try:
+                    await another_link.wait_for(state="visible", timeout=5000)
+                except Exception:
+                    pass  # 最後の回などでリンクが出なくても次へ進む
 
                 log_area.success(
                     f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})"
