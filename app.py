@@ -1,8 +1,9 @@
+import asyncio
 import os
 import subprocess
 import sys
 
-# PlaywrightパッケージとChromiumブラウザをPython経由で安全に自動インストール
+# パッケージとブラウザの自動インストール
 try:
     from playwright.async_api import async_playwright
 except ImportError:
@@ -13,13 +14,10 @@ except ImportError:
     subprocess.run([sys.executable, "-m", "playwright", "install-deps"])
     from playwright.async_api import async_playwright
 
-import asyncio
 import streamlit as st
 
 st.set_page_config(page_title="Microsoft Forms 自動送信ツール", layout="centered")
 st.title("⚡ Microsoft Forms 自動送信ツール")
-
-# --- 以下、元のコードと同じ ---
 
 # --- 画面からの入力設定 ---
 url = st.text_input(
@@ -39,10 +37,13 @@ with col2:
     )
 
 
-async def worker(worker_id, target_url, target_text, assigned_count, log_area):
+async def worker(
+    worker_id, target_url, target_text, assigned_count, log_area, progress_bar
+):
     """1つのブラウザインスタンスが担当分の送信を行うワーカー関数"""
     async with async_playwright() as p:
-        # ヘッドレスモードでブラウザ起動
+        log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動しています...")
+
         browser = await p.chromium.launch(
             headless=True,
             args=[
@@ -62,6 +63,9 @@ async def worker(worker_id, target_url, target_text, assigned_count, log_area):
 
         try:
             for i in range(assigned_count):
+                log_area.info(
+                    f"🔄 [ワーカー {worker_id}] ページ読み込み中... ({i+1}/{assigned_count})"
+                )
                 await page.goto(target_url, wait_until="domcontentloaded")
 
                 # 1. 選択肢をクリック
@@ -82,19 +86,21 @@ async def worker(worker_id, target_url, target_text, assigned_count, log_area):
                 )
                 await another_locator.click(timeout=5000)
 
-                log_area.write(
-                    f"🟢 [ワーカー {worker_id}] 成功 ({i+1}/{assigned_count})"
+                log_area.success(
+                    f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})"
                 )
 
         except Exception as e:
-            log_area.write(f"❌ [ワーカー {worker_id}] エラー: {e}")
+            log_area.error(f"❌ [ワーカー {worker_id}] エラーが発生しました: {e}")
         finally:
             await browser.close()
 
 
 async def run_all():
+    status_box = st.empty()
     log_area = st.container()
-    log_area.write("🚀 並列処理を開始します...")
+
+    status_box.info("🚀 並列ワーカーを起動中...")
 
     base_count = total_count // concurrency
     remainder = total_count % concurrency
@@ -104,11 +110,18 @@ async def run_all():
         assigned = int(base_count + (1 if i < remainder else 0))
         if assigned > 0:
             tasks.append(
-                worker(i + 1, url, target_choice, assigned, log_area)
+                worker(
+                    i + 1,
+                    url,
+                    target_choice,
+                    assigned,
+                    log_area,
+                    status_box,
+                )
             )
 
     await asyncio.gather(*tasks)
-    st.success("🎉 すべての送信処理が完了しました！")
+    status_box.success("🎉 すべての送信処理が完了しました！")
     st.balloons()
 
 
