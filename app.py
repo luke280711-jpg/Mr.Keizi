@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 
-# Streamlit Cloud環境でPlaywrightブラウザとシステム依存関係を確実にセットアップ
+# Streamlit Cloud環境でPlaywrightブラウザとシステム依存関係をセットアップ
 try:
     from playwright.async_api import async_playwright
 except ImportError:
@@ -34,11 +34,12 @@ target_choice = st.text_input("投票したい選択肢名", value="Mr.1 山城 
 col1, col2 = st.columns(2)
 with col1:
     total_count = st.number_input(
-        "合計送信回数", min_value=1, max_value=1000, value=100
+        "合計送信回数", min_value=1, max_value=1000, value=10
     )
 with col2:
+    # クラウド環境のメモリ制限を考慮し、初期値を安定した 1 に変更
     concurrency = st.number_input(
-        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=10, value=3
+        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=5, value=1
     )
 
 
@@ -49,7 +50,7 @@ async def worker(
     async with async_playwright() as p:
         log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
 
-        # クラウド環境に最適化した起動オプション
+        # クラウド環境で安定動作する起動オプション（--single-processを削除）
         browser = await p.chromium.launch(
             headless=True,
             args=[
@@ -57,7 +58,6 @@ async def worker(
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
-                "--single-process",
             ],
         )
         context = await browser.new_context()
@@ -106,7 +106,7 @@ async def worker(
 
 async def run_all():
     log_area = st.container()
-    st.info("🚀 並列ワーカーを起動しています...")
+    st.info("🚀 送信処理を開始します...")
 
     base_count = total_count // concurrency
     remainder = total_count % concurrency
@@ -130,3 +130,4 @@ if st.button("自動送信を開始", type="primary"):
         st.error("URLを入力してください。")
     else:
         asyncio.run(run_all())
+        
