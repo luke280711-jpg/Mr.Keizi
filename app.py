@@ -3,20 +3,19 @@ import os
 import subprocess
 import sys
 
-# Streamlit Cloud環境でPlaywrightブラウザとシステム依存関係をセットアップ
+# Streamlit Cloud環境でPlaywrightパッケージとChromiumをインストール
 try:
     from playwright.async_api import async_playwright
 except ImportError:
     subprocess.run([sys.executable, "-m", "pip", "install", "playwright"])
     from playwright.async_api import async_playwright
 
-# ブラウザバイナリと依存ライブラリの自動インストール
+# ブラウザバイナリと依存関係のインストール
 subprocess.run(
     [sys.executable, "-m", "playwright", "install", "chromium"], check=False
 )
 subprocess.run(
-    [sys.executable, "-m", "playwright", "install-deps", "chromium"],
-    check=False,
+    [sys.executable, "-m", "playwright", "install-deps"], check=False
 )
 
 import streamlit as st
@@ -37,7 +36,6 @@ with col1:
         "合計送信回数", min_value=1, max_value=1000, value=10
     )
 with col2:
-    # クラウド環境のメモリ制限を考慮し、初期値を安定した 1 に変更
     concurrency = st.number_input(
         "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=5, value=1
     )
@@ -50,16 +48,32 @@ async def worker(
     async with async_playwright() as p:
         log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
 
-        # クラウド環境で安定動作する起動オプション（--single-processを削除）
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
+        # Linux環境でシステムにインストールされているChromiumのパスを探索
+        chromium_path = None
+        for path in ["/usr/bin/chromium", "/usr/bin/chromium-browser"]:
+            if os.path.exists(path):
+                chromium_path = path
+                break
+
+        # 起動引数を指定してブラウザを起動
+        launch_kwargs = {
+            "headless": True,
+            "args": [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
             ],
-        )
+        }
+        if chromium_path:
+            launch_kwargs["executable_path"] = chromium_path
+
+        try:
+            browser = await p.chromium.launch(**launch_kwargs)
+        except Exception as e:
+            log_area.error(f"❌ [ワーカー {worker_id}] ブラウザ起動失敗: {e}")
+            return
+
         context = await browser.new_context()
         page = await context.new_page()
 
@@ -130,4 +144,3 @@ if st.button("自動送信を開始", type="primary"):
         st.error("URLを入力してください。")
     else:
         asyncio.run(run_all())
-        
