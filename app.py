@@ -3,16 +3,21 @@ import os
 import subprocess
 import sys
 
-# パッケージとブラウザの自動インストール
+# Streamlit Cloud環境でPlaywrightブラウザとシステム依存関係を確実にセットアップ
 try:
     from playwright.async_api import async_playwright
 except ImportError:
     subprocess.run([sys.executable, "-m", "pip", "install", "playwright"])
-    subprocess.run(
-        [sys.executable, "-m", "playwright", "install", "chromium"]
-    )
-    subprocess.run([sys.executable, "-m", "playwright", "install-deps"])
     from playwright.async_api import async_playwright
+
+# ブラウザバイナリと依存ライブラリの自動インストール
+subprocess.run(
+    [sys.executable, "-m", "playwright", "install", "chromium"], check=False
+)
+subprocess.run(
+    [sys.executable, "-m", "playwright", "install-deps", "chromium"],
+    check=False,
+)
 
 import streamlit as st
 
@@ -33,23 +38,26 @@ with col1:
     )
 with col2:
     concurrency = st.number_input(
-        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=10, value=5
+        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=10, value=3
     )
 
 
 async def worker(
-    worker_id, target_url, target_text, assigned_count, log_area, progress_bar
+    worker_id, target_url, target_text, assigned_count, log_area
 ):
     """1つのブラウザインスタンスが担当分の送信を行うワーカー関数"""
     async with async_playwright() as p:
-        log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動しています...")
+        log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
 
+        # クラウド環境に最適化した起動オプション
         browser = await p.chromium.launch(
             headless=True,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--single-process",
             ],
         )
         context = await browser.new_context()
@@ -64,7 +72,7 @@ async def worker(
         try:
             for i in range(assigned_count):
                 log_area.info(
-                    f"🔄 [ワーカー {worker_id}] ページ読み込み中... ({i+1}/{assigned_count})"
+                    f"🔄 [ワーカー {worker_id}] ページ読込中 ({i+1}/{assigned_count})"
                 )
                 await page.goto(target_url, wait_until="domcontentloaded")
 
@@ -91,16 +99,14 @@ async def worker(
                 )
 
         except Exception as e:
-            log_area.error(f"❌ [ワーカー {worker_id}] エラーが発生しました: {e}")
+            log_area.error(f"❌ [ワーカー {worker_id}] エラー: {e}")
         finally:
             await browser.close()
 
 
 async def run_all():
-    status_box = st.empty()
     log_area = st.container()
-
-    status_box.info("🚀 並列ワーカーを起動中...")
+    st.info("🚀 並列ワーカーを起動しています...")
 
     base_count = total_count // concurrency
     remainder = total_count % concurrency
@@ -110,18 +116,11 @@ async def run_all():
         assigned = int(base_count + (1 if i < remainder else 0))
         if assigned > 0:
             tasks.append(
-                worker(
-                    i + 1,
-                    url,
-                    target_choice,
-                    assigned,
-                    log_area,
-                    status_box,
-                )
+                worker(i + 1, url, target_choice, assigned, log_area)
             )
 
     await asyncio.gather(*tasks)
-    status_box.success("🎉 すべての送信処理が完了しました！")
+    st.success("🎉 すべての送信処理が完了しました！")
     st.balloons()
 
 
