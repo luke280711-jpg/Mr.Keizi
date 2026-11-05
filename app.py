@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 
+# サーバー上にPlaywrightのブラウザを自動インストールする処理
 try:
     from playwright.async_api import async_playwright
 except ImportError:
@@ -15,7 +16,6 @@ from playwright.async_api import async_playwright
 
 st.set_page_config(page_title="Microsoft Forms 自動送信ツール", layout="centered")
 st.title("⚡ Microsoft Forms 自動送信ツール")
-
 
 # --- 画面からの入力設定 ---
 url = st.text_input(
@@ -113,5 +113,4 @@ if st.button("自動送信を開始", type="primary"):
     if not url:
         st.error("URLを入力してください。")
     else:
-        # Streamlit上で非同期ループを実行
         asyncio.run(run_all())
