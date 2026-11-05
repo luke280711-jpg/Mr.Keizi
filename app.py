@@ -10,12 +10,8 @@ except ImportError:
     subprocess.run([sys.executable, "-m", "pip", "install", "playwright"])
     from playwright.async_api import async_playwright
 
-# ブラウザバイナリと依存関係のインストール
 subprocess.run(
     [sys.executable, "-m", "playwright", "install", "chromium"], check=False
-)
-subprocess.run(
-    [sys.executable, "-m", "playwright", "install-deps"], check=False
 )
 
 import streamlit as st
@@ -48,28 +44,17 @@ async def worker(
     async with async_playwright() as p:
         log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
 
-        # Linux環境でシステムにインストールされているChromiumのパスを探索
-        chromium_path = None
-        for path in ["/usr/bin/chromium", "/usr/bin/chromium-browser"]:
-            if os.path.exists(path):
-                chromium_path = path
-                break
-
-        # 起動引数を指定してブラウザを起動
-        launch_kwargs = {
-            "headless": True,
-            "args": [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-            ],
-        }
-        if chromium_path:
-            launch_kwargs["executable_path"] = chromium_path
-
         try:
-            browser = await p.chromium.launch(**launch_kwargs)
+            # クラウドLinuxに最適化した安定起動オプション
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                ],
+            )
         except Exception as e:
             log_area.error(f"❌ [ワーカー {worker_id}] ブラウザ起動失敗: {e}")
             return
