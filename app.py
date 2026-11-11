@@ -34,16 +34,17 @@ with col1:
     )
 with col2:
     concurrency = st.number_input(
-        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=3, value=2,
-        help="※CPU負荷を抑えつつ最速化するため最大3個に設定しています。"
+        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=5, value=5,
+        help="※5ワーカーで並列実行します。"
     )
 
 
 async def worker(
     worker_id, target_url, target_text, assigned_count, log_area
 ):
-    """爆速化されたワーカー関数"""
-    await asyncio.sleep((worker_id - 1) * 0.5)
+    """5ワーカー対応・超高速化ワーカー関数"""
+    # 5並列での一斉起動によるCPUパンクを防ぐため、0.3秒ずつずらして起動
+    await asyncio.sleep((worker_id - 1) * 0.3)
 
     async with async_playwright() as p:
         log_area.info(f"🌐 [ワーカー {worker_id}] 起動中...")
@@ -85,24 +86,22 @@ async def worker(
             await page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
 
             for i in range(assigned_count):
-                # 1. 選択肢を即座にクリック（待機なし）
+                # 1. 選択肢を即座にクリック
                 await page.locator(f"text={target_text}").first.click(force=True, timeout=10000)
 
-                # 2. 送信ボタンを即座にクリック（待機なし）
+                # 2. 送信ボタンを即座にクリック
                 await page.locator("button:has-text('送信'), [data-automation-id='submitButton']").first.click(force=True, timeout=10000)
 
                 log_area.success(f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})")
 
-                # 最終回以外は超高速画面リセット
+                # 最終回以外は画面リセット
                 if i < assigned_count - 1:
-                    # 最小限のウェイト（0.4秒）で送信リクエストを確実に処理させる
                     await asyncio.sleep(0.4)
                     
                     try:
                         await page.locator("text=別の回答を送信, a:has-text('別の回答')").first.click(force=True, timeout=5000)
                         await asyncio.sleep(0.3)
                     except Exception:
-                        # リセットボタンが機能しない場合のみフォールバック再読み込み
                         await page.goto(target_url, wait_until="domcontentloaded", timeout=20000)
 
         except Exception as e:
