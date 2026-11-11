@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 import subprocess
 import sys
 
@@ -33,7 +34,7 @@ with col1:
     )
 with col2:
     concurrency = st.number_input(
-        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=5, value=2
+        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=3, value=1
     )
 
 
@@ -41,8 +42,7 @@ async def worker(
     worker_id, target_url, target_text, assigned_count, log_area
 ):
     """1つのブラウザインスタンスが担当分の送信を行うワーカー関数"""
-    # 同時一斉起動によるメモリパンクを防ぐため、ワーカーごとに起動をずらす
-    await asyncio.sleep((worker_id - 1) * 2)
+    await asyncio.sleep((worker_id - 1) * 3)  # ワーカーごとの起動ディレイ
 
     async with async_playwright() as p:
         log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
@@ -61,17 +61,18 @@ async def worker(
             log_area.error(f"❌ [ワーカー {worker_id}] ブラウザ起動失敗: {e}")
             return
 
-        context = await browser.new_context()
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         page = await context.new_page()
 
-        # 画像やフォントの読み込みを遮断してメモリ節約
+        # 画像やフォントの読み込みを遮断
         await page.route(
             "**/*.{png,jpg,jpeg,gif,svg,webp,woff,woff2}",
             lambda route: route.abort(),
         )
 
         try:
-            # 初回のみ URL へ遷移
             log_area.info(f"🔄 [ワーカー {worker_id}] フォームを開いています...")
             await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
 
@@ -90,6 +91,9 @@ async def worker(
                 log_area.success(
                     f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})"
                 )
+
+                # 人間らしいランダムなウェイト（1.5〜3秒）
+                await asyncio.sleep(random.uniform(1.5, 3.0))
 
                 # 最終回以外は「別の回答を送信」をクリックしてリセット
                 if i < assigned_count - 1:
