@@ -68,7 +68,7 @@ async def worker(
         )
         page = await context.new_page()
 
-        # 画像や動画等の不要なリソースのみ遮断（CSS/Fontは通す）
+        # 画像や動画等の不要なリソースのみ遮断
         await page.route(
             "**/*.{png,jpg,jpeg,gif,svg,webp}",
             lambda route: route.abort(),
@@ -90,20 +90,23 @@ async def worker(
                 ).first
                 await submit_button.click()
 
+                # 送信完了の処理待ち
+                await page.wait_for_timeout(1500)
+
                 log_area.success(
                     f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})"
                 )
 
-                # 人間らしいランダムなウェイト（1.5〜3秒）
-                await asyncio.sleep(random.uniform(1.5, 3.0))
-
                 # 最終回以外は「別の回答を送信」をクリックしてリセット
                 if i < assigned_count - 1:
                     another_link = page.locator(
-                        "text=別の回答を送信, a:has-text('別の回答')"
+                        "xpath=//a[contains(text(), '別の回答')] | //div[contains(text(), '別の回答')] | //span[contains(text(), '別の回答')]"
                     ).first
-                    await another_link.wait_for(state="visible", timeout=10000)
+                    await another_link.wait_for(state="visible", timeout=20000)
                     await another_link.click()
+
+                    # フォーム再読み込みの待ち時間（1〜2秒）
+                    await asyncio.sleep(random.uniform(1.0, 2.0))
 
         except Exception as e:
             log_area.error(f"❌ [ワーカー {worker_id}] エラー: {e}")
