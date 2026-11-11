@@ -41,6 +41,9 @@ async def worker(
     worker_id, target_url, target_text, assigned_count, log_area
 ):
     """1つのブラウザインスタンスが担当分の送信を行うワーカー関数"""
+    # 同時一斉起動によるメモリパンクを防ぐため、ワーカーごとに起動をずらす
+    await asyncio.sleep((worker_id - 1) * 2)
+
     async with async_playwright() as p:
         log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
 
@@ -61,24 +64,21 @@ async def worker(
         context = await browser.new_context()
         page = await context.new_page()
 
-        # 画像とフォントのみ遮断（CSSやJSは通してFormsのレンダリングを安定化）
+        # 画像やフォントの読み込みを遮断してメモリ節約
         await page.route(
             "**/*.{png,jpg,jpeg,gif,svg,webp,woff,woff2}",
             lambda route: route.abort(),
         )
 
         try:
-            for i in range(assigned_count):
-                log_area.info(
-                    f"🔄 [ワーカー {worker_id}] ページ読込中 ({i+1}/{assigned_count})"
-                )
-                
-                # domcontentloaded で軽量・高速に読み込み
-                await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+            # 初回のみ URL へ遷移
+            log_area.info(f"🔄 [ワーカー {worker_id}] フォームを開いています...")
+            await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
 
-                # 1. 選択肢をクリック（要素が表示されるまで最大15秒待機）
+            for i in range(assigned_count):
+                # 1. 選択肢をクリック
                 choice_locator = page.locator(f"text={target_text}").first
-                await choice_locator.wait_for(state="visible", timeout=15000)
+                await choice_locator.wait_for(state="visible", timeout=20000)
                 await choice_locator.click()
 
                 # 2. 送信ボタンをクリック
@@ -87,18 +87,17 @@ async def worker(
                 ).first
                 await submit_button.click()
 
-                # 3. 「別の回答を送信」をクリック（次のループ用）
-                another_link = page.locator(
-                    "text=別の回答を送信, a:has-text('別の回答')"
-                ).first
-                try:
-                    await another_link.wait_for(state="visible", timeout=5000)
-                except Exception:
-                    pass  # タイムアウトしてもそのまま次ループへ
-
                 log_area.success(
                     f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})"
                 )
+
+                # 最終回以外は「別の回答を送信」をクリックしてリセット
+                if i < assigned_count - 1:
+                    another_link = page.locator(
+                        "text=別の回答を送信, a:has-text('別の回答')"
+                    ).first
+                    await another_link.wait_for(state="visible", timeout=10000)
+                    await another_link.click()
 
         except Exception as e:
             log_area.error(f"❌ [ワーカー {worker_id}] エラー: {e}")
