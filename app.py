@@ -42,7 +42,7 @@ async def worker(
     worker_id, target_url, target_text, assigned_count, log_area
 ):
     """1つのブラウザインスタンスが担当分の送信を行うワーカー関数"""
-    await asyncio.sleep((worker_id - 1) * 3)  # ワーカーごとの起動ディレイ
+    await asyncio.sleep((worker_id - 1) * 3)
 
     async with async_playwright() as p:
         log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
@@ -55,6 +55,8 @@ async def worker(
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
+                    "--disable-font-subsetting",
+                    "--font-render-hinting=none",
                 ],
             )
         except Exception as e:
@@ -66,9 +68,9 @@ async def worker(
         )
         page = await context.new_page()
 
-        # 画像やフォントの読み込みを遮断
+        # 画像や動画等の不要なリソースのみ遮断（CSS/Fontは通す）
         await page.route(
-            "**/*.{png,jpg,jpeg,gif,svg,webp,woff,woff2}",
+            "**/*.{png,jpg,jpeg,gif,svg,webp}",
             lambda route: route.abort(),
         )
 
