@@ -18,7 +18,7 @@ subprocess.run(
 import streamlit as st
 
 st.set_page_config(page_title="Microsoft Forms 自動送信ツール", layout="centered")
-st.title("⚡ Microsoft Forms 自動送信ツール")
+st.title("⚡ Microsoft Forms 自動送信ツール (CPU超軽量版)")
 
 # --- 画面からの入力設定 ---
 url = st.text_input(
@@ -30,26 +30,27 @@ target_choice = st.text_input("投票したい選択肢名", value="Mr.1 山城 
 col1, col2 = st.columns(2)
 with col1:
     total_count = st.number_input(
-        "合計送信回数", min_value=1, max_value=1000, value=10
+        "合計送信回数", min_value=1, max_value=10000, value=50
     )
 with col2:
-    # 並列数の最大値を5に拡大
     concurrency = st.number_input(
-        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=5, value=3
+        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=3, value=2,
+        help="※CPU負荷を抑えるため最大3個に制限しています。"
     )
 
 
 async def worker(
     worker_id, target_url, target_text, assigned_count, log_area
 ):
-    """1つのブラウザインスタンスが担当分の送信を行うワーカー関数"""
-    # 同時アクセスの負荷を分散するため、わずかな時差（1秒ずつ）で起動
-    await asyncio.sleep((worker_id - 1) * 1.0)
+    """CPU負荷を極限まで抑えたワーカー関数"""
+    # 起動時のCPUスパイクを防ぐため2秒ズラす
+    await asyncio.sleep((worker_id - 1) * 2.0)
 
     async with async_playwright() as p:
-        log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
+        log_area.info(f"🌐 [ワーカー {worker_id}] 軽量ブラウザを起動中...")
 
         try:
+            # CPU・メモリ消費を最少化する起動オプション
             browser = await p.chromium.launch(
                 headless=True,
                 args=[
@@ -57,8 +58,16 @@ async def worker(
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
-                    "--disable-font-subsetting",
-                    "--font-render-hinting=none",
+                    "--disable-extensions",
+                    "--disable-component-update",
+                    "--disable-background-networking",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-breakpad",
+                    "--disable-ipc-flooding-protection",
+                    "--disable-renderer-backgrounding",
+                    "--metrics-recording-only",
+                    "--mute-audio",
                 ],
             )
         except Exception as e:
@@ -70,19 +79,18 @@ async def worker(
         )
         page = await context.new_page()
 
-        # 画像、フォント、CSS、メディアを全て遮断して超高速化
+        # 画像・動画・フォント等の重いメディアのみ遮断
         await page.route(
-            "**/*.{png,jpg,jpeg,gif,svg,webp,css,woff,woff2,ttf,otf,mp4,mp3}",
+            "**/*.{png,jpg,jpeg,gif,svg,webp,woff,woff2,ttf,otf,mp4,mp3}",
             lambda route: route.abort(),
         )
 
         try:
-            for i in range(assigned_count):
-                log_area.info(f"🔄 [ワーカー {worker_id}] 送信中 ({i+1}/{assigned_count})...")
-                
-                # 最速でページを読み込み
-                await page.goto(target_url, wait_until="commit", timeout=40000)
+            log_area.info(f"🔄 [ワーカー {worker_id}] フォームを開いています...")
+            # 初回のみ ページ全体読み込み
+            await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
 
+            for i in range(assigned_count):
                 # 1. 選択肢をクリック
                 choice_locator = page.locator(f"text={target_text}").first
                 await choice_locator.wait_for(state="visible", timeout=15000)
@@ -94,16 +102,23 @@ async def worker(
                 ).first
                 await submit_button.click()
 
-                # 短めの完了待機（1秒）
-                await page.wait_for_timeout(1000)
-
                 log_area.success(
                     f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})"
                 )
 
-                # 高速化のため合間のウェイトを0.5〜1秒に縮小
+                # 最終回以外は「別の回答を送信」をクリックして同一タブ内で高速リセット（CPU節約）
                 if i < assigned_count - 1:
-                    await asyncio.sleep(random.uniform(0.5, 1.0))
+                    await asyncio.sleep(random.uniform(1.0, 1.8))
+                    
+                    try:
+                        another_link = page.locator(
+                            "text=別の回答を送信, a:has-text('別の回答')"
+                        ).first
+                        await another_link.wait_for(state="visible", timeout=8000)
+                        await another_link.click()
+                    except Exception:
+                        # 万一リンクが見つからなければフォールバックでgotoリロード
+                        await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
 
         except Exception as e:
             log_area.error(f"❌ [ワーカー {worker_id}] エラー: {e}")
