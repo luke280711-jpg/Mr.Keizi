@@ -33,8 +33,9 @@ with col1:
         "合計送信回数", min_value=1, max_value=1000, value=10
     )
 with col2:
+    # 並列数の最大値を5に拡大
     concurrency = st.number_input(
-        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=3, value=1
+        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=5, value=3
     )
 
 
@@ -42,7 +43,8 @@ async def worker(
     worker_id, target_url, target_text, assigned_count, log_area
 ):
     """1つのブラウザインスタンスが担当分の送信を行うワーカー関数"""
-    await asyncio.sleep((worker_id - 1) * 3)
+    # 同時アクセスの負荷を分散するため、わずかな時差（1秒ずつ）で起動
+    await asyncio.sleep((worker_id - 1) * 1.0)
 
     async with async_playwright() as p:
         log_area.info(f"🌐 [ワーカー {worker_id}] ブラウザを起動中...")
@@ -68,22 +70,22 @@ async def worker(
         )
         page = await context.new_page()
 
-        # 画像や動画等の不要なリソースのみ遮断（通信軽量化）
+        # 画像、フォント、CSS、メディアを全て遮断して超高速化
         await page.route(
-            "**/*.{png,jpg,jpeg,gif,svg,webp}",
+            "**/*.{png,jpg,jpeg,gif,svg,webp,css,woff,woff2,ttf,otf,mp4,mp3}",
             lambda route: route.abort(),
         )
 
         try:
             for i in range(assigned_count):
-                log_area.info(f"🔄 [ワーカー {worker_id}] ページ読み込み中 ({i+1}/{assigned_count})...")
+                log_area.info(f"🔄 [ワーカー {worker_id}] 送信中 ({i+1}/{assigned_count})...")
                 
-                # 毎回確実にフォームを開き直す（最もエラーが起きにくい方式）
-                await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+                # 最速でページを読み込み
+                await page.goto(target_url, wait_until="commit", timeout=40000)
 
                 # 1. 選択肢をクリック
                 choice_locator = page.locator(f"text={target_text}").first
-                await choice_locator.wait_for(state="visible", timeout=20000)
+                await choice_locator.wait_for(state="visible", timeout=15000)
                 await choice_locator.click()
 
                 # 2. 送信ボタンをクリック
@@ -92,16 +94,16 @@ async def worker(
                 ).first
                 await submit_button.click()
 
-                # 送信完了処理を確実に待つ
-                await page.wait_for_timeout(2000)
+                # 短めの完了待機（1秒）
+                await page.wait_for_timeout(1000)
 
                 log_area.success(
                     f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})"
                 )
 
-                # 人間らしいアクセス間隔（1.5〜3秒）を入れて連続アクセス判定を回避
+                # 高速化のため合間のウェイトを0.5〜1秒に縮小
                 if i < assigned_count - 1:
-                    await asyncio.sleep(random.uniform(1.5, 3.0))
+                    await asyncio.sleep(random.uniform(0.5, 1.0))
 
         except Exception as e:
             log_area.error(f"❌ [ワーカー {worker_id}] エラー: {e}")
