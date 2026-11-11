@@ -68,17 +68,19 @@ async def worker(
         )
         page = await context.new_page()
 
-        # 画像や動画等の不要なリソースのみ遮断
+        # 画像や動画等の不要なリソースのみ遮断（通信軽量化）
         await page.route(
             "**/*.{png,jpg,jpeg,gif,svg,webp}",
             lambda route: route.abort(),
         )
 
         try:
-            log_area.info(f"🔄 [ワーカー {worker_id}] フォームを開いています...")
-            await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
-
             for i in range(assigned_count):
+                log_area.info(f"🔄 [ワーカー {worker_id}] ページ読み込み中 ({i+1}/{assigned_count})...")
+                
+                # 毎回確実にフォームを開き直す（最もエラーが起きにくい方式）
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+
                 # 1. 選択肢をクリック
                 choice_locator = page.locator(f"text={target_text}").first
                 await choice_locator.wait_for(state="visible", timeout=20000)
@@ -90,23 +92,16 @@ async def worker(
                 ).first
                 await submit_button.click()
 
-                # 送信完了の処理待ち
-                await page.wait_for_timeout(1500)
+                # 送信完了処理を確実に待つ
+                await page.wait_for_timeout(2000)
 
                 log_area.success(
                     f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})"
                 )
 
-                # 最終回以外は「別の回答を送信」をクリックしてリセット
+                # 人間らしいアクセス間隔（1.5〜3秒）を入れて連続アクセス判定を回避
                 if i < assigned_count - 1:
-                    another_link = page.locator(
-                        "xpath=//a[contains(text(), '別の回答')] | //div[contains(text(), '別の回答')] | //span[contains(text(), '別の回答')]"
-                    ).first
-                    await another_link.wait_for(state="visible", timeout=20000)
-                    await another_link.click()
-
-                    # フォーム再読み込みの待ち時間（1〜2秒）
-                    await asyncio.sleep(random.uniform(1.0, 2.0))
+                    await asyncio.sleep(random.uniform(1.5, 3.0))
 
         except Exception as e:
             log_area.error(f"❌ [ワーカー {worker_id}] エラー: {e}")
