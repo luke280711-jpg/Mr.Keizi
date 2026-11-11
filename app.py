@@ -33,7 +33,7 @@ with col1:
     )
 with col2:
     concurrency = st.number_input(
-        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=5, value=1
+        "並列ブラウザ数 (ワーカー数)", min_value=1, max_value=5, value=2
     )
 
 
@@ -72,14 +72,16 @@ async def worker(
                 log_area.info(
                     f"🔄 [ワーカー {worker_id}] ページ読込中 ({i+1}/{assigned_count})"
                 )
-                await page.goto(target_url, wait_until="networkidle")
+                
+                # domcontentloaded で軽量・高速に読み込み
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
 
-                # 1. 選択肢をクリック（テキストを含む要素を探す）
+                # 1. 選択肢をクリック（要素が表示されるまで最大15秒待機）
                 choice_locator = page.locator(f"text={target_text}").first
-                await choice_locator.wait_for(state="visible", timeout=10000)
+                await choice_locator.wait_for(state="visible", timeout=15000)
                 await choice_locator.click()
 
-                # 2. 送信ボタンをクリック（複数の要素指定方法で柔軟に対応）
+                # 2. 送信ボタンをクリック
                 submit_button = page.locator(
                     "button:has-text('送信'), [data-automation-id='submitButton']"
                 ).first
@@ -92,7 +94,7 @@ async def worker(
                 try:
                     await another_link.wait_for(state="visible", timeout=5000)
                 except Exception:
-                    pass  # 最後の回などでリンクが出なくても次へ進む
+                    pass  # タイムアウトしてもそのまま次ループへ
 
                 log_area.success(
                     f"🟢 [ワーカー {worker_id}] 送信成功！ ({i+1}/{assigned_count})"
